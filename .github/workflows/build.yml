@@ -87,7 +87,7 @@ jobs:
                   }
                   val title = TextView(this).apply { text = "Norsk Ord"; textSize = 28f }
                   val status = TextView(this).apply {
-                      val w = Words.today(); text = "\nToday: ${w.no} = ${w.en}\n"
+                      val w = Words.today(this@MainActivity); text = "\nToday: ${w.no} = ${w.en}\n"
                   }
                   val lock = CheckBox(this).apply {
                       text = "Also change lock screen"; isChecked = prefs.getBoolean("lock", true)
@@ -126,8 +126,10 @@ jobs:
               fun render(ctx: Context, word: Word): Bitmap {
                   val wm = WallpaperManager.getInstance(ctx)
                   val dm = ctx.resources.displayMetrics
-                  val w = maxOf(wm.desiredMinimumWidth, dm.widthPixels)
-                  val h = maxOf(wm.desiredMinimumHeight, dm.heightPixels)
+                  // Use the real screen size. Samsung reports a much wider "desired" size
+                  // (for scrolling wallpapers), which made the text huge and cropped.
+                  val w = dm.widthPixels
+                  val h = dm.heightPixels
 
                   val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
                   val c = Canvas(bmp)
@@ -141,7 +143,7 @@ jobs:
                   // Start below the lock-screen clock area
                   var y = h * 0.45f
 
-                  y = draw(c, word.no, textW, pad, y, w * 0.14f, Color.WHITE, bold = true) + h * 0.015f
+                  y = draw(c, word.no, textW, pad, y, w * 0.13f, Color.WHITE, bold = true) + h * 0.015f
                   y = draw(c, word.en, textW, pad, y, w * 0.06f, Color.parseColor("#8DA9C4")) + h * 0.04f
                   y = draw(c, word.exNo, textW, pad, y, w * 0.04f, Color.WHITE, italic = true) + h * 0.008f
                   draw(c, word.exEn, textW, pad, y, w * 0.036f, Color.parseColor("#8DA9C4"))
@@ -163,7 +165,7 @@ jobs:
               }
 
               fun apply(ctx: Context, lockScreenToo: Boolean) {
-                  val bmp = render(ctx, Words.today())
+                  val bmp = render(ctx, Words.today(ctx))
                   val flags = WallpaperManager.FLAG_SYSTEM or
                       if (lockScreenToo) WallpaperManager.FLAG_LOCK else 0
                   WallpaperManager.getInstance(ctx).setBitmap(bmp, null, true, flags)
@@ -212,67 +214,329 @@ jobs:
           cat > 'app/src/main/java/no/norskord/Words.kt' <<'EOF_FILE'
           package no.norskord
 
+          import android.content.Context
           import java.time.LocalDate
 
           data class Word(val no: String, val en: String, val exNo: String, val exEn: String)
 
           object Words {
-              val list = listOf(
-                  Word("hei", "hello", "Hei, hvordan går det?", "Hi, how are you?"),
-                  Word("takk", "thanks", "Tusen takk for hjelpen.", "Thanks a lot for the help."),
-                  Word("vær så snill", "please", "Kan du hjelpe meg, vær så snill?", "Can you help me, please?"),
-                  Word("unnskyld", "sorry / excuse me", "Unnskyld, hvor er toalettet?", "Excuse me, where is the toilet?"),
-                  Word("hus", "house", "Vi bor i et stort hus.", "We live in a big house."),
-                  Word("vann", "water", "Jeg vil ha et glass vann.", "I would like a glass of water."),
-                  Word("brød", "bread", "Jeg spiser brød til frokost.", "I eat bread for breakfast."),
-                  Word("melk", "milk", "Vil du ha melk i kaffen?", "Do you want milk in your coffee?"),
-                  Word("venn", "friend", "Han er en god venn.", "He is a good friend."),
-                  Word("familie", "family", "Familien min bor i Ålesund.", "My family lives in Ålesund."),
-                  Word("arbeid", "work", "Jeg går på arbeid klokka åtte.", "I go to work at eight o'clock."),
-                  Word("skole", "school", "Barna er på skolen.", "The children are at school."),
-                  Word("bok", "book", "Jeg leser en spennende bok.", "I am reading an exciting book."),
-                  Word("bil", "car", "Bilen er ny.", "The car is new."),
-                  Word("tog", "train", "Toget går om ti minutter.", "The train leaves in ten minutes."),
-                  Word("sol", "sun", "Solen skinner i dag.", "The sun is shining today."),
-                  Word("regn", "rain", "Det kommer mye regn i Vestlandet.", "There is a lot of rain in Western Norway."),
-                  Word("snø", "snow", "Det er snø på fjellet.", "There is snow on the mountain."),
-                  Word("fjord", "fjord", "Vi seilte inn fjorden.", "We sailed into the fjord."),
-                  Word("fjell", "mountain", "Vi går på fjellet i helgen.", "We are hiking in the mountains this weekend."),
-                  Word("hav", "sea / ocean", "Havet er rolig i dag.", "The sea is calm today."),
-                  Word("kaffe", "coffee", "Jeg trenger en kopp kaffe.", "I need a cup of coffee."),
-                  Word("hygge", "cosiness", "Vi hadde det veldig hyggelig.", "We had a really cosy time."),
-                  Word("kjærlighet", "love", "Kjærlighet er viktig.", "Love is important."),
-                  Word("glad", "happy", "Jeg er så glad i dag.", "I am so happy today."),
-                  Word("trøtt", "tired", "Jeg er veldig trøtt.", "I am very tired."),
-                  Word("sulten", "hungry", "Er du sulten?", "Are you hungry?"),
-                  Word("tid", "time", "Jeg har ikke tid nå.", "I don't have time now."),
-                  Word("dag", "day", "God dag!", "Good day!"),
-                  Word("natt", "night", "God natt!", "Good night!"),
-                  Word("uke", "week", "Neste uke reiser jeg.", "Next week I'm travelling."),
-                  Word("måned", "month", "Det er en måned til jul.", "It is a month until Christmas."),
-                  Word("lys", "light", "Slå på lyset, takk.", "Turn on the light, please."),
-                  Word("varme", "heat / warmth", "Varmen er skrudd på.", "The heating is switched on."),
-                  Word("sterk", "strong", "Kaffen er sterk.", "The coffee is strong."),
-                  Word("liten", "small", "Det er en liten by.", "It is a small town."),
-                  Word("stor", "big", "Det er et stort skip.", "It is a big ship."),
-                  Word("hjelp", "help", "Jeg trenger hjelp.", "I need help."),
-                  Word("spørsmål", "question", "Har du et spørsmål?", "Do you have a question?"),
-                  Word("svar", "answer", "Jeg vet svaret.", "I know the answer."),
-                  Word("forstå", "to understand", "Jeg forstår ikke.", "I don't understand."),
-                  Word("snakke", "to speak", "Snakker du norsk?", "Do you speak Norwegian?"),
-                  Word("lære", "to learn / teach", "Jeg lærer norsk hver dag.", "I learn Norwegian every day."),
-                  Word("kjøpe", "to buy", "Jeg skal kjøpe brød.", "I am going to buy bread."),
-                  Word("reise", "to travel", "Vi skal reise til Oslo.", "We are going to travel to Oslo."),
-                  Word("bo", "to live (reside)", "Hvor bor du?", "Where do you live?"),
-                  Word("elske", "to love", "Jeg elsker fjell.", "I love mountains."),
-                  Word("vente", "to wait", "Vent litt, takk.", "Wait a moment, please."),
-                  Word("åpen", "open", "Butikken er åpen.", "The shop is open."),
-                  Word("stengt", "closed", "Banken er stengt.", "The bank is closed."),
-                  Word("fin", "nice / fine", "Det er en fin dag.", "It is a nice day."),
-                  Word("dårlig", "bad / poorly", "Været er dårlig.", "The weather is bad.")
-              )
+              private val RAW = """
+          fjell|mountain|Vi går på fjellet i helgen.|We are hiking in the mountains this weekend.
+          hav|sea / ocean|Havet er rolig i dag.|The sea is calm today.
+          hygge|cosiness|Vi hadde en hyggelig kveld.|We had a cosy evening.
+          trøtt|tired|Jeg er veldig trøtt.|I am very tired.
+          sulten|hungry|Er du sulten?|Are you hungry?
+          sterk|strong|Kaffen er sterk.|The coffee is strong.
+          å gå|to walk / go|Jeg går til jobben hver dag.|I walk to work every day.
+          å komme|to come|Hun kommer i morgen.|She is coming tomorrow.
+          å se|to see|Jeg ser fjellet fra vinduet.|I can see the mountain from the window.
+          å høre|to hear|Jeg hører musikk.|I hear music.
+          å tenke|to think|Jeg tenker på deg.|I am thinking of you.
+          å vite|to know (a fact)|Jeg vet ikke hvor han bor.|I don't know where he lives.
+          å kjenne|to know (a person) / feel|Jeg kjenner henne godt.|I know her well.
+          å finne|to find|Jeg finner ikke nøklene.|I can't find the keys.
+          å lete|to search|Jeg leter etter telefonen.|I am looking for the phone.
+          å ta|to take|Ta bussen til sentrum.|Take the bus to the centre.
+          å gi|to give|Kan du gi meg saltet?|Can you give me the salt?
+          å få|to get / receive|Jeg fikk en gave.|I received a gift.
+          å gjøre|to do / make|Hva gjør du i helgen?|What are you doing this weekend?
+          å lage|to make / cook|Jeg lager middag.|I am making dinner.
+          å bruke|to use|Jeg bruker telefonen mye.|I use the phone a lot.
+          å trenge|to need|Jeg trenger litt tid.|I need a bit of time.
+          å ville|to want|Jeg vil ha en kopp te.|I want a cup of tea.
+          å kunne|can / to be able to|Kan du hjelpe meg?|Can you help me?
+          å måtte|must / have to|Jeg må gå nå.|I have to go now.
+          å skulle|shall / going to|Vi skal på kino i kveld.|We are going to the cinema tonight.
+          å burde|should|Du bør hvile litt.|You should rest a little.
+          å like|to like|Jeg liker å gå tur.|I like going for walks.
+          å spise|to eat|Vi spiser middag klokka seks.|We eat dinner at six.
+          å drikke|to drink|Jeg drikker mye vann.|I drink a lot of water.
+          å sove|to sleep|Jeg sover åtte timer.|I sleep eight hours.
+          å våkne|to wake up|Jeg våkner klokka seks.|I wake up at six.
+          å stå opp|to get up|Jeg står opp klokka sju.|I get up at seven.
+          å jobbe|to work|Hun jobber på kontor.|She works in an office.
+          å åpne|to open|Kan du åpne vinduet?|Can you open the window?
+          å lukke|to close|Lukk døren, takk.|Close the door, please.
+          å starte|to start|Møtet starter nå.|The meeting starts now.
+          å slutte|to stop / quit|Jeg slutter klokka fire.|I finish at four.
+          å begynne|to begin|Filmen begynner snart.|The film begins soon.
+          å gjenta|to repeat|Kan du gjenta det?|Can you repeat that?
+          å huske|to remember|Jeg husker ikke navnet.|I don't remember the name.
+          å glemme|to forget|Jeg glemte paraplyen.|I forgot the umbrella.
+          å betale|to pay|Jeg betaler med kort.|I pay by card.
+          å koste|to cost|Hva koster den?|How much does it cost?
+          å selge|to sell|De selger brukte biler.|They sell used cars.
+          å vise|to show|Kan du vise meg veien?|Can you show me the way?
+          å sitte|to sit|Vi sitter ved bordet.|We are sitting at the table.
+          å ligge|to lie / be located|Boken ligger på bordet.|The book is on the table.
+          å stå|to stand|Bilen står utenfor.|The car is parked outside.
+          å løpe|to run|Jeg løper hver morgen.|I run every morning.
+          å svømme|to swim|Vi svømmer i fjorden.|We swim in the fjord.
+          å spille|to play|Barna spiller fotball.|The children play football.
+          å smile|to smile|Hun smiler til meg.|She smiles at me.
+          å hjelpe|to help|Kan jeg hjelpe deg?|Can I help you?
+          å spørre|to ask|Jeg vil spørre om noe.|I want to ask about something.
+          å svare|to answer|Han svarer ikke.|He is not answering.
+          å fortelle|to tell|Fortell meg mer.|Tell me more.
+          å si|to say|Hva sa du?|What did you say?
+          å skrive|to write|Jeg skriver en e-post.|I am writing an email.
+          å lese|to read|Jeg leser avisen.|I am reading the newspaper.
+          å ringe|to call|Jeg ringer deg senere.|I will call you later.
+          å sende|to send|Jeg sender deg en melding.|I will send you a message.
+          å møte|to meet|Vi møtes klokka tre.|We meet at three o'clock.
+          å besøke|to visit|Vi besøker mormor i helgen.|We are visiting grandma this weekend.
+          å kjøre|to drive|Jeg kjører til jobben.|I drive to work.
+          å fly|to fly|Vi flyr til Bergen.|We are flying to Bergen.
+          å vaske|to wash|Jeg vasker bilen.|I am washing the car.
+          å rydde|to tidy|Jeg rydder rommet.|I am tidying the room.
+          å bety|to mean|Hva betyr dette ordet?|What does this word mean?
+          å prøve|to try|Jeg skal prøve igjen.|I will try again.
+          å velge|to choose|Du må velge en farge.|You have to choose a colour.
+          å bestemme|to decide|Vi må bestemme oss.|We have to make up our minds.
+          å endre|to change|Jeg vil endre planen.|I want to change the plan.
+          å bytte|to replace / swap|Jeg må bytte lyspære.|I need to replace a light bulb.
+          å reparere|to repair|Han reparerer bilen.|He is repairing the car.
+          å bygge|to build|De bygger et nytt hus.|They are building a new house.
+          å installere|to install|Vi installerer nye lamper.|We are installing new lamps.
+          å teste|to test|Vi tester systemet.|We are testing the system.
+          å slå på|to switch on|Kan du slå på TV-en?|Can you switch on the TV?
+          å slå av|to switch off|Husk å slå av komfyren.|Remember to switch off the stove.
+          å glede seg|to look forward|Jeg gleder meg til ferien.|I am looking forward to the holiday.
+          dør|door|Døren er låst.|The door is locked.
+          vindu|window|Vinduet er åpent.|The window is open.
+          bord|table|Maten står på bordet.|The food is on the table.
+          stol|chair|Ta en stol.|Take a chair.
+          seng|bed|Jeg går i seng nå.|I am going to bed now.
+          rom|room|Rommet er stort.|The room is big.
+          kjøkken|kitchen|Vi lager mat på kjøkkenet.|We cook in the kitchen.
+          bad|bathroom|Badet er rent.|The bathroom is clean.
+          stue|living room|Vi sitter i stua.|We are sitting in the living room.
+          hage|garden|Vi har en liten hage.|We have a small garden.
+          vei|road / way|Veien er glatt.|The road is slippery.
+          gate|street|Jeg bor i en rolig gate.|I live on a quiet street.
+          by|city / town|Ålesund er en vakker by.|Ålesund is a beautiful town.
+          land|country|Norge er et langt land.|Norway is a long country.
+          butikk|shop|Butikken stenger klokka ti.|The shop closes at ten.
+          sykehus|hospital|Han er på sykehuset.|He is at the hospital.
+          lege|doctor|Jeg har time hos legen.|I have an appointment with the doctor.
+          penger|money|Jeg har ikke mange penger.|I don't have much money.
+          pris|price|Prisen er for høy.|The price is too high.
+          regning|bill|Jeg må betale regningen i dag.|I have to pay the bill today.
+          billett|ticket|Jeg kjøpte en billett til Oslo.|I bought a ticket to Oslo.
+          buss|bus|Bussen er forsinket.|The bus is delayed.
+          båt|boat|Vi tar båten til øya.|We take the boat to the island.
+          sykkel|bicycle|Sykkelen min er rød.|My bicycle is red.
+          mat|food|Maten er god.|The food is good.
+          middag|dinner|Hva skal vi ha til middag?|What are we having for dinner?
+          frokost|breakfast|Jeg spiser frokost klokka sju.|I eat breakfast at seven.
+          lunsj|lunch|Vi spiser lunsj sammen.|We eat lunch together.
+          frukt|fruit|Jeg spiser frukt hver dag.|I eat fruit every day.
+          grønnsak|vegetable|Jeg spiser mange grønnsaker.|I eat a lot of vegetables.
+          fisk|fish|Vi spiser fisk til middag.|We eat fish for dinner.
+          kjøtt|meat|Han spiser ikke kjøtt.|He doesn't eat meat.
+          suppe|soup|Suppen smaker godt.|The soup tastes good.
+          kake|cake|Vi spiser kake på bursdagen.|We eat cake on the birthday.
+          nøkkel|key|Jeg har mistet nøkkelen.|I have lost the key.
+          telefon|phone|Telefonen ringer.|The phone is ringing.
+          datamaskin|computer|Datamaskinen er treg.|The computer is slow.
+          passord|password|Jeg har glemt passordet.|I have forgotten the password.
+          melding|message|Jeg fikk en melding.|I got a message.
+          e-post|email|Jeg sender deg en e-post.|I will send you an email.
+          bilde|picture|Dette bildet er fra sommeren.|This picture is from the summer.
+          film|film|Vi så en god film.|We watched a good film.
+          musikk|music|Jeg hører på musikk.|I listen to music.
+          fest|party|Vi skal på fest i kveld.|We are going to a party tonight.
+          gave|gift|Takk for gaven!|Thanks for the gift!
+          bursdag|birthday|I dag er det bursdagen min.|Today is my birthday.
+          jul|Christmas|Vi feirer jul hjemme.|We celebrate Christmas at home.
+          sommer|summer|Sommeren er kort her.|The summer is short here.
+          vinter|winter|Vinteren er mørk.|The winter is dark.
+          vår|spring|Våren kommer snart.|Spring is coming soon.
+          høst|autumn|Om høsten regner det mye.|In autumn it rains a lot.
+          vær|weather|Det er fint vær i dag.|The weather is nice today.
+          vind|wind|Det er sterk vind i dag.|There is a strong wind today.
+          himmel|sky / heaven|Himmelen er blå.|The sky is blue.
+          tre|tree / three|Det står et tre i hagen.|There is a tree in the garden.
+          blomst|flower|Hun kjøpte en blomst.|She bought a flower.
+          hund|dog|Hunden vil gå tur.|The dog wants to go for a walk.
+          katt|cat|Katten sover i sofaen.|The cat sleeps on the sofa.
+          øy|island|Vi bor på en øy.|We live on an island.
+          elv|river|Elven er full av fisk.|The river is full of fish.
+          skog|forest|Vi går tur i skogen.|We walk in the forest.
+          strand|beach|Vi ligger på stranda.|We are lying on the beach.
+          kropp|body|Kroppen trenger hvile.|The body needs rest.
+          hode|head|Jeg har vondt i hodet.|I have a headache.
+          hånd|hand|Jeg vasker hendene.|I am washing my hands.
+          fot|foot|Jeg har vondt i foten.|My foot hurts.
+          øye|eye|Hun har blå øyne.|She has blue eyes.
+          hjerte|heart|Hjertet slår fort.|The heart beats fast.
+          helse|health|Helsen er viktigst.|Health is the most important thing.
+          medisin|medicine|Jeg må ta medisinen.|I have to take the medicine.
+          ny|new|Jeg har en ny jobb.|I have a new job.
+          gammel|old|Huset er veldig gammelt.|The house is very old.
+          ung|young|Hun er ung.|She is young.
+          høy|tall / high / loud|Han er høy.|He is tall.
+          lav|low|Temperaturen er lav.|The temperature is low.
+          lang|long|Det er en lang vei.|It is a long way.
+          kort|short|Veien er kort.|The road is short.
+          bred|wide|Fjorden er bred.|The fjord is wide.
+          smal|narrow|Veien er smal.|The road is narrow.
+          tung|heavy|Kofferten er tung.|The suitcase is heavy.
+          lett|light / easy|Oppgaven er lett.|The task is easy.
+          vanskelig|difficult|Norsk er ikke vanskelig.|Norwegian is not difficult.
+          billig|cheap|Billetten var billig.|The ticket was cheap.
+          dyr|expensive|Kaffen er dyr her.|The coffee is expensive here.
+          varm|warm|Suppen er varm.|The soup is warm.
+          kald|cold|Vannet er kaldt.|The water is cold.
+          våt|wet|Jakken er våt.|The jacket is wet.
+          tørr|dry|Klærne er tørre.|The clothes are dry.
+          ren|clean|Rommet er rent.|The room is clean.
+          skitten|dirty|Bilen er skitten.|The car is dirty.
+          full|full|Bussen er full.|The bus is full.
+          tom|empty|Glasset er tomt.|The glass is empty.
+          rask|fast|Toget er raskt.|The train is fast.
+          langsom|slow|Nettet er langsomt.|The internet is slow.
+          svak|weak|Signalet er svakt.|The signal is weak.
+          trygg|safe|Vi føler oss trygge her.|We feel safe here.
+          farlig|dangerous|Veien er farlig om vinteren.|The road is dangerous in winter.
+          viktig|important|Det er viktig å sove.|It is important to sleep.
+          riktig|correct|Svaret er riktig.|The answer is correct.
+          feil|wrong / fault|Det er en feil i systemet.|There is a fault in the system.
+          sikker|sure / safe|Er du sikker?|Are you sure?
+          klar|ready / clear|Maten er klar.|The food is ready.
+          ferdig|finished|Jeg er ferdig med jobben.|I am finished with work.
+          opptatt|busy|Jeg er opptatt nå.|I am busy now.
+          ledig|available / free|Er bordet ledig?|Is the table free?
+          sint|angry|Han er sint.|He is angry.
+          redd|afraid|Jeg er redd for høyder.|I am afraid of heights.
+          stolt|proud|Jeg er stolt av deg.|I am proud of you.
+          bekymret|worried|Jeg er litt bekymret.|I am a little worried.
+          nysgjerrig|curious|Barn er nysgjerrige.|Children are curious.
+          hyggelig|nice / pleasant|Det var hyggelig å møte deg.|It was nice to meet you.
+          koselig|cosy|Det er koselig her.|It is cosy here.
+          snill|kind|Hun er veldig snill.|She is very kind.
+          frisk|healthy / fresh|Jeg er frisk igjen.|I am healthy again.
+          syk|sick|Barnet er sykt.|The child is sick.
+          sen|late|Toget er sent.|The train is late.
+          tidlig|early|Det er for tidlig.|It is too early.
+          nå|now|Jeg har tid nå.|I have time now.
+          snart|soon|Vi sees snart.|See you soon.
+          alltid|always|Han er alltid sen.|He is always late.
+          aldri|never|Jeg har aldri vært i Tromsø.|I have never been to Tromsø.
+          ofte|often|Vi møtes ofte.|We meet often.
+          sjelden|rarely|Jeg spiser sjelden kjøtt.|I rarely eat meat.
+          noen ganger|sometimes|Noen ganger tar jeg bussen.|Sometimes I take the bus.
+          ennå|yet / still|Jeg har ikke spist ennå.|I haven't eaten yet.
+          allerede|already|Han er allerede her.|He is already here.
+          igjen|again|Kan du si det igjen?|Can you say that again?
+          i dag|today|Hva skjer i dag?|What is happening today?
+          i morgen|tomorrow|Vi sees i morgen.|See you tomorrow.
+          i går|yesterday|Jeg var på jobb i går.|I was at work yesterday.
+          kveld|evening|Hva gjør du i kveld?|What are you doing tonight?
+          morgen|morning|God morgen!|Good morning!
+          ettermiddag|afternoon|Vi møtes i ettermiddag.|We meet this afternoon.
+          helg|weekend|God helg!|Have a good weekend!
+          år|year|Jeg har bodd her i tre år.|I have lived here for three years.
+          time|hour|Møtet varer en time.|The meeting lasts one hour.
+          minutt|minute|Vent et minutt.|Wait a minute.
+          veldig|very|Det er veldig kaldt.|It is very cold.
+          ganske|quite|Det er ganske dyrt.|It is quite expensive.
+          litt|a little|Jeg snakker litt norsk.|I speak a little Norwegian.
+          mye|much / a lot|Jeg har mye å gjøre.|I have a lot to do.
+          mange|many|Det er mange folk her.|There are many people here.
+          nesten|almost|Jeg er nesten ferdig.|I am almost finished.
+          bare|only / just|Jeg har bare ti minutter.|I only have ten minutes.
+          kanskje|maybe|Kanskje det regner i morgen.|Maybe it will rain tomorrow.
+          selvfølgelig|of course|Selvfølgelig kan jeg hjelpe.|Of course I can help.
+          dessverre|unfortunately|Dessverre har jeg ikke tid.|Unfortunately I don't have time.
+          heldigvis|luckily|Heldigvis var det ingen skade.|Luckily there was no damage.
+          sammen|together|Vi jobber sammen.|We work together.
+          alene|alone|Hun bor alene.|She lives alone.
+          ute|outside|Det er kaldt ute.|It is cold outside.
+          inne|inside|Vi sitter inne.|We are sitting inside.
+          over|over / above|Lampen henger over bordet.|The lamp hangs above the table.
+          under|under|Katten sover under sengen.|The cat sleeps under the bed.
+          mellom|between|Huset ligger mellom to fjell.|The house lies between two mountains.
+          foran|in front of|Bilen står foran huset.|The car is in front of the house.
+          bak|behind|Hagen ligger bak huset.|The garden is behind the house.
+          til venstre|to the left|Ta til venstre.|Turn left.
+          til høyre|to the right|Ta til høyre ved kirka.|Turn right at the church.
+          rett frem|straight ahead|Gå rett frem.|Go straight ahead.
+          nær|near|Butikken er nær.|The shop is nearby.
+          langt|far|Det er ikke langt.|It is not far.
+          strøm|electricity / current|Strømmen er borte.|The power is out.
+          spenning|voltage|Spenningen er 230 volt.|The voltage is 230 volts.
+          sikring|fuse|Sikringen har gått.|The fuse has blown.
+          kabel|cable|Kabelen er for kort.|The cable is too short.
+          ledning|wire|Ledningen er skadet.|The wire is damaged.
+          bryter|switch|Bryteren sitter ved døren.|The switch is by the door.
+          sensor|sensor|Sensoren måler temperaturen.|The sensor measures the temperature.
+          styring|control|Styringen er koblet til nettet.|The control system is connected to the network.
+          alarm|alarm|Alarmen gikk klokka tre.|The alarm went off at three.
+          kurs|course|Jeg holder kurs i morgen.|I am teaching a course tomorrow.
+          opplæring|training|Vi gir opplæring til nye kunder.|We give training to new customers.
+          kunde|customer|Kunden er fornøyd.|The customer is satisfied.
+          avtale|agreement / appointment|Vi har en avtale klokka ti.|We have an appointment at ten.
+          tilbud|offer|Vi sender et tilbud i dag.|We are sending an offer today.
+          tegning|drawing|Tegningen er ikke oppdatert.|The drawing is not updated.
+          måling|measurement|Målingen viser ti grader.|The measurement shows ten degrees.
+          verktøy|tool|Jeg har med meg verktøyet.|I have the tools with me.
+          skrutrekker|screwdriver|Kan jeg låne skrutrekkeren?|Can I borrow the screwdriver?
+          skrue|screw|Jeg trenger flere skruer.|I need more screws.
+          nettverk|network|Nettverket er nede.|The network is down.
+          tilkobling|connection|Tilkoblingen er ustabil.|The connection is unstable.
+          oppdatering|update|Det kommer en ny oppdatering.|A new update is coming.
+          innstilling|setting|Endre innstillingen her.|Change the setting here.
+          sjef|boss|Sjefen er på kontoret.|The boss is in the office.
+          kollega|colleague|Jeg spiser lunsj med en kollega.|I am having lunch with a colleague.
+          møte|meeting|Vi har møte klokka ni.|We have a meeting at nine.
+          frist|deadline|Fristen er på fredag.|The deadline is on Friday.
+          oppdrag|assignment|Vi har et stort oppdrag.|We have a big assignment.
+          prosjekt|project|Prosjektet er ferdig i mai.|The project is finished in May.
+          kontor|office|Kontoret er i andre etasje.|The office is on the second floor.
+          lønn|salary|Lønnen kommer den tjuende.|The salary arrives on the twentieth.
+          ferie|holiday|Jeg har ferie i juli.|I am on holiday in July.
+          erfaring|experience|Han har mye erfaring.|He has a lot of experience.
+          kunnskap|knowledge|Kunnskap er viktig.|Knowledge is important.
+          sikkerhet|safety|Sikkerhet kommer først.|Safety comes first.
+          vedlikehold|maintenance|Vi gjør vedlikehold i dag.|We are doing maintenance today.
+          montør|installer|Montøren kommer i morgen.|The installer is coming tomorrow.
+          elektriker|electrician|Elektrikeren kobler til lyset.|The electrician is connecting the light.
+          ansvar|responsibility|Jeg har ansvaret for prosjektet.|I am responsible for the project.
+          tilbakemelding|feedback|Takk for tilbakemeldingen.|Thanks for the feedback.
+          Ha det bra|goodbye|Ha det bra, vi sees i morgen.|Goodbye, see you tomorrow.
+          Vi sees|see you|Vi sees på mandag!|See you on Monday!
+          God kveld|good evening|God kveld, velkommen!|Good evening, welcome!
+          Velkommen|welcome|Velkommen til Norge.|Welcome to Norway.
+          Gratulerer|congratulations|Gratulerer med dagen!|Congratulations on your day!
+          Det går bra|it's going fine|Det går bra med meg.|I'm doing fine.
+          Ikke noe problem|no problem|Ikke noe problem, jeg ordner det.|No problem, I'll sort it out.
+          Hyggelig å møte deg|nice to meet you|Hyggelig å møte deg!|Nice to meet you!
+          Det var så lite|you're welcome|Takk! Det var så lite.|Thanks! You're welcome.
+          Beklager|I'm sorry|Beklager forsinkelsen.|Sorry for the delay.
+          Så bra|that's great|Du er ferdig? Så bra!|You're finished? That's great!
+          Ha en fin dag|have a nice day|Ha en fin dag på jobb!|Have a nice day at work!
+          Hva skjer?|what's up?|Hei! Hva skjer?|Hi! What's up?
+          Jeg har det travelt|I'm in a hurry|Beklager, jeg har det travelt.|Sorry, I'm in a hurry.
+          Det er greit|that's okay|Det er greit for meg.|That's okay with me.
+          Vær så god|here you are|Vær så god, ta for deg.|Here you are, help yourself.
+          Det spiller ingen rolle|it doesn't matter|Det spiller ingen rolle.|It doesn't matter.
+          """
 
-              fun today(): Word = list[(LocalDate.now().toEpochDay() % list.size).toInt()]
+              val list: List<Word> = RAW.trim().lines().mapNotNull {
+                  val p = it.split("|")
+                  if (p.size == 4) Word(p[0], p[1], p[2], p[3]) else null
+              }
+
+              /** Word #1 is shown on the day the daily word is first enabled, then one new word per day. */
+              fun today(ctx: Context): Word {
+                  val prefs = ctx.getSharedPreferences("prefs", Context.MODE_PRIVATE)
+                  val now = LocalDate.now().toEpochDay()
+                  var start = prefs.getLong("start", -1L)
+                  if (start < 0) { start = now; prefs.edit().putLong("start", now).apply() }
+                  val i = (((now - start) % list.size) + list.size) % list.size
+                  return list[i.toInt()]
+              }
           }
           EOF_FILE
           mkdir -p $(dirname 'app/src/main/res/values/strings.xml')
