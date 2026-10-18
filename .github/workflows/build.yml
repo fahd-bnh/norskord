@@ -1,0 +1,308 @@
+name: Build APK
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.7
+      - name: Write project files
+        run: |
+          mkdir -p proj && cd proj
+          mkdir -p $(dirname 'app/build.gradle.kts')
+          cat > 'app/build.gradle.kts' <<'EOF_FILE'
+          plugins {
+              id("com.android.application")
+              id("org.jetbrains.kotlin.android")
+          }
+          android {
+              namespace = "no.norskord"
+              compileSdk = 34
+              defaultConfig {
+                  applicationId = "no.norskord"
+                  minSdk = 26
+                  targetSdk = 34
+                  versionCode = 1
+                  versionName = "1.0"
+              }
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+              kotlinOptions { jvmTarget = "17" }
+          }
+          dependencies {
+              implementation("androidx.core:core-ktx:1.13.1")
+              implementation("androidx.work:work-runtime-ktx:2.9.1")
+          }
+          EOF_FILE
+          mkdir -p $(dirname 'app/src/main/AndroidManifest.xml')
+          cat > 'app/src/main/AndroidManifest.xml' <<'EOF_FILE'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.SET_WALLPAPER" />
+              <application
+                  android:label="@string/app_name"
+                  android:icon="@android:drawable/ic_menu_edit"
+                  android:theme="@android:style/Theme.Material.Light.NoActionBar">
+                  <activity android:name=".MainActivity" android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF_FILE
+          mkdir -p $(dirname 'app/src/main/java/no/norskord/MainActivity.kt')
+          cat > 'app/src/main/java/no/norskord/MainActivity.kt' <<'EOF_FILE'
+          package no.norskord
+
+          import android.app.Activity
+          import android.content.Context
+          import android.os.Bundle
+          import android.view.Gravity
+          import android.widget.*
+
+          class MainActivity : Activity() {
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  val prefs = getSharedPreferences("prefs", Context.MODE_PRIVATE)
+
+                  val col = LinearLayout(this).apply {
+                      orientation = LinearLayout.VERTICAL
+                      gravity = Gravity.CENTER
+                      setPadding(64, 64, 64, 64)
+                  }
+                  val title = TextView(this).apply { text = "Norsk Ord"; textSize = 28f }
+                  val status = TextView(this).apply {
+                      val w = Words.today(); text = "\nToday: ${w.no} = ${w.en}\n"
+                  }
+                  val lock = CheckBox(this).apply {
+                      text = "Also change lock screen"; isChecked = prefs.getBoolean("lock", true)
+                      setOnCheckedChangeListener { _, v -> prefs.edit().putBoolean("lock", v).apply() }
+                  }
+                  val enable = Button(this).apply {
+                      text = "Enable daily word"
+                      setOnClickListener {
+                          WordWorker.schedule(this@MainActivity)
+                          WallpaperRenderer.apply(this@MainActivity, prefs.getBoolean("lock", true))
+                          Toast.makeText(context, "Enabled. New word every day.", Toast.LENGTH_SHORT).show()
+                      }
+                  }
+                  val disable = Button(this).apply {
+                      text = "Disable"
+                      setOnClickListener { WordWorker.cancel(this@MainActivity) }
+                  }
+                  listOf(title, status, lock, enable, disable).forEach { col.addView(it) }
+                  setContentView(col)
+              }
+          }
+          EOF_FILE
+          mkdir -p $(dirname 'app/src/main/java/no/norskord/WallpaperRenderer.kt')
+          cat > 'app/src/main/java/no/norskord/WallpaperRenderer.kt' <<'EOF_FILE'
+          package no.norskord
+
+          import android.app.WallpaperManager
+          import android.content.Context
+          import android.graphics.*
+          import android.text.Layout
+          import android.text.StaticLayout
+          import android.text.TextPaint
+
+          object WallpaperRenderer {
+
+              fun render(ctx: Context, word: Word): Bitmap {
+                  val wm = WallpaperManager.getInstance(ctx)
+                  val dm = ctx.resources.displayMetrics
+                  val w = maxOf(wm.desiredMinimumWidth, dm.widthPixels)
+                  val h = maxOf(wm.desiredMinimumHeight, dm.heightPixels)
+
+                  val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+                  val c = Canvas(bmp)
+                  val p = Paint(Paint.ANTI_ALIAS_FLAG)
+                  p.shader = LinearGradient(0f, 0f, 0f, h.toFloat(),
+                      Color.parseColor("#0B2545"), Color.parseColor("#13315C"), Shader.TileMode.CLAMP)
+                  c.drawRect(0f, 0f, w.toFloat(), h.toFloat(), p)
+
+                  val pad = w * 0.1f
+                  val textW = (w - 2 * pad).toInt()
+                  // Start below the lock-screen clock area
+                  var y = h * 0.45f
+
+                  y = draw(c, word.no, textW, pad, y, w * 0.14f, Color.WHITE, bold = true) + h * 0.015f
+                  y = draw(c, word.en, textW, pad, y, w * 0.06f, Color.parseColor("#8DA9C4")) + h * 0.04f
+                  y = draw(c, word.exNo, textW, pad, y, w * 0.04f, Color.WHITE, italic = true) + h * 0.008f
+                  draw(c, word.exEn, textW, pad, y, w * 0.036f, Color.parseColor("#8DA9C4"))
+                  return bmp
+              }
+
+              private fun draw(c: Canvas, text: String, width: Int, x: Float, y: Float, size: Float,
+                               color: Int, bold: Boolean = false, italic: Boolean = false): Float {
+                  val tp = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+                      this.color = color
+                      textSize = size
+                      typeface = Typeface.create(Typeface.DEFAULT,
+                          when { bold -> Typeface.BOLD; italic -> Typeface.ITALIC; else -> Typeface.NORMAL })
+                  }
+                  val layout = StaticLayout.Builder.obtain(text, 0, text.length, tp, width)
+                      .setAlignment(Layout.Alignment.ALIGN_NORMAL).build()
+                  c.save(); c.translate(x, y); layout.draw(c); c.restore()
+                  return y + layout.height
+              }
+
+              fun apply(ctx: Context, lockScreenToo: Boolean) {
+                  val bmp = render(ctx, Words.today())
+                  val flags = WallpaperManager.FLAG_SYSTEM or
+                      if (lockScreenToo) WallpaperManager.FLAG_LOCK else 0
+                  WallpaperManager.getInstance(ctx).setBitmap(bmp, null, true, flags)
+              }
+          }
+          EOF_FILE
+          mkdir -p $(dirname 'app/src/main/java/no/norskord/WordWorker.kt')
+          cat > 'app/src/main/java/no/norskord/WordWorker.kt' <<'EOF_FILE'
+          package no.norskord
+
+          import android.content.Context
+          import androidx.work.*
+          import java.util.concurrent.TimeUnit
+
+          class WordWorker(ctx: Context, params: WorkerParameters) : Worker(ctx, params) {
+              override fun doWork(): Result = try {
+                  val lock = applicationContext.getSharedPreferences("prefs", Context.MODE_PRIVATE)
+                      .getBoolean("lock", true)
+                  WallpaperRenderer.apply(applicationContext, lock)
+                  Result.success()
+              } catch (e: Exception) {
+                  Result.retry()
+              }
+
+              companion object {
+                  private const val NAME = "daily_word"
+
+                  fun schedule(ctx: Context) {
+                      val req = PeriodicWorkRequestBuilder<WordWorker>(24, TimeUnit.HOURS)
+                          .setInitialDelay(minutesToMidnight(), TimeUnit.MINUTES)
+                          .build()
+                      WorkManager.getInstance(ctx)
+                          .enqueueUniquePeriodicWork(NAME, ExistingPeriodicWorkPolicy.UPDATE, req)
+                  }
+
+                  fun cancel(ctx: Context) = WorkManager.getInstance(ctx).cancelUniqueWork(NAME)
+
+                  private fun minutesToMidnight(): Long {
+                      val now = java.time.LocalDateTime.now()
+                      return java.time.Duration.between(now, now.toLocalDate().plusDays(1).atTime(0, 5)).toMinutes()
+                  }
+              }
+          }
+          EOF_FILE
+          mkdir -p $(dirname 'app/src/main/java/no/norskord/Words.kt')
+          cat > 'app/src/main/java/no/norskord/Words.kt' <<'EOF_FILE'
+          package no.norskord
+
+          import java.time.LocalDate
+
+          data class Word(val no: String, val en: String, val exNo: String, val exEn: String)
+
+          object Words {
+              val list = listOf(
+                  Word("hei", "hello", "Hei, hvordan går det?", "Hi, how are you?"),
+                  Word("takk", "thanks", "Tusen takk for hjelpen.", "Thanks a lot for the help."),
+                  Word("vær så snill", "please", "Kan du hjelpe meg, vær så snill?", "Can you help me, please?"),
+                  Word("unnskyld", "sorry / excuse me", "Unnskyld, hvor er toalettet?", "Excuse me, where is the toilet?"),
+                  Word("hus", "house", "Vi bor i et stort hus.", "We live in a big house."),
+                  Word("vann", "water", "Jeg vil ha et glass vann.", "I would like a glass of water."),
+                  Word("brød", "bread", "Jeg spiser brød til frokost.", "I eat bread for breakfast."),
+                  Word("melk", "milk", "Vil du ha melk i kaffen?", "Do you want milk in your coffee?"),
+                  Word("venn", "friend", "Han er en god venn.", "He is a good friend."),
+                  Word("familie", "family", "Familien min bor i Ålesund.", "My family lives in Ålesund."),
+                  Word("arbeid", "work", "Jeg går på arbeid klokka åtte.", "I go to work at eight o'clock."),
+                  Word("skole", "school", "Barna er på skolen.", "The children are at school."),
+                  Word("bok", "book", "Jeg leser en spennende bok.", "I am reading an exciting book."),
+                  Word("bil", "car", "Bilen er ny.", "The car is new."),
+                  Word("tog", "train", "Toget går om ti minutter.", "The train leaves in ten minutes."),
+                  Word("sol", "sun", "Solen skinner i dag.", "The sun is shining today."),
+                  Word("regn", "rain", "Det kommer mye regn i Vestlandet.", "There is a lot of rain in Western Norway."),
+                  Word("snø", "snow", "Det er snø på fjellet.", "There is snow on the mountain."),
+                  Word("fjord", "fjord", "Vi seilte inn fjorden.", "We sailed into the fjord."),
+                  Word("fjell", "mountain", "Vi går på fjellet i helgen.", "We are hiking in the mountains this weekend."),
+                  Word("hav", "sea / ocean", "Havet er rolig i dag.", "The sea is calm today."),
+                  Word("kaffe", "coffee", "Jeg trenger en kopp kaffe.", "I need a cup of coffee."),
+                  Word("hygge", "cosiness", "Vi hadde det veldig hyggelig.", "We had a really cosy time."),
+                  Word("kjærlighet", "love", "Kjærlighet er viktig.", "Love is important."),
+                  Word("glad", "happy", "Jeg er så glad i dag.", "I am so happy today."),
+                  Word("trøtt", "tired", "Jeg er veldig trøtt.", "I am very tired."),
+                  Word("sulten", "hungry", "Er du sulten?", "Are you hungry?"),
+                  Word("tid", "time", "Jeg har ikke tid nå.", "I don't have time now."),
+                  Word("dag", "day", "God dag!", "Good day!"),
+                  Word("natt", "night", "God natt!", "Good night!"),
+                  Word("uke", "week", "Neste uke reiser jeg.", "Next week I'm travelling."),
+                  Word("måned", "month", "Det er en måned til jul.", "It is a month until Christmas."),
+                  Word("lys", "light", "Slå på lyset, takk.", "Turn on the light, please."),
+                  Word("varme", "heat / warmth", "Varmen er skrudd på.", "The heating is switched on."),
+                  Word("sterk", "strong", "Kaffen er sterk.", "The coffee is strong."),
+                  Word("liten", "small", "Det er en liten by.", "It is a small town."),
+                  Word("stor", "big", "Det er et stort skip.", "It is a big ship."),
+                  Word("hjelp", "help", "Jeg trenger hjelp.", "I need help."),
+                  Word("spørsmål", "question", "Har du et spørsmål?", "Do you have a question?"),
+                  Word("svar", "answer", "Jeg vet svaret.", "I know the answer."),
+                  Word("forstå", "to understand", "Jeg forstår ikke.", "I don't understand."),
+                  Word("snakke", "to speak", "Snakker du norsk?", "Do you speak Norwegian?"),
+                  Word("lære", "to learn / teach", "Jeg lærer norsk hver dag.", "I learn Norwegian every day."),
+                  Word("kjøpe", "to buy", "Jeg skal kjøpe brød.", "I am going to buy bread."),
+                  Word("reise", "to travel", "Vi skal reise til Oslo.", "We are going to travel to Oslo."),
+                  Word("bo", "to live (reside)", "Hvor bor du?", "Where do you live?"),
+                  Word("elske", "to love", "Jeg elsker fjell.", "I love mountains."),
+                  Word("vente", "to wait", "Vent litt, takk.", "Wait a moment, please."),
+                  Word("åpen", "open", "Butikken er åpen.", "The shop is open."),
+                  Word("stengt", "closed", "Banken er stengt.", "The bank is closed."),
+                  Word("fin", "nice / fine", "Det er en fin dag.", "It is a nice day."),
+                  Word("dårlig", "bad / poorly", "Været er dårlig.", "The weather is bad.")
+              )
+
+              fun today(): Word = list[(LocalDate.now().toEpochDay() % list.size).toInt()]
+          }
+          EOF_FILE
+          mkdir -p $(dirname 'app/src/main/res/values/strings.xml')
+          cat > 'app/src/main/res/values/strings.xml' <<'EOF_FILE'
+          <resources><string name="app_name">Norsk Ord</string></resources>
+          EOF_FILE
+          mkdir -p $(dirname 'build.gradle.kts')
+          cat > 'build.gradle.kts' <<'EOF_FILE'
+          plugins {
+              id("com.android.application") version "8.5.2" apply false
+              id("org.jetbrains.kotlin.android") version "1.9.24" apply false
+          }
+          EOF_FILE
+          mkdir -p $(dirname 'gradle.properties')
+          cat > 'gradle.properties' <<'EOF_FILE'
+          android.useAndroidX=true
+          org.gradle.jvmargs=-Xmx2g
+          EOF_FILE
+          mkdir -p $(dirname 'settings.gradle.kts')
+          cat > 'settings.gradle.kts' <<'EOF_FILE'
+          pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
+          dependencyResolutionManagement { repositories { google(); mavenCentral() } }
+          rootProject.name = "NorskOrd"
+          include(":app")
+          EOF_FILE
+      - name: Build
+        run: gradle -p proj assembleDebug --no-daemon
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp proj/app/build/outputs/apk/debug/app-debug.apk NorskOrd.apk
+          gh release create "v${{ github.run_number }}" NorskOrd.apk --repo "${{ github.repository }}" --title "NorskOrd build ${{ github.run_number }}" --notes "Debug APK"
